@@ -1,5 +1,3 @@
-import datetime
-
 import boto3
 import pandas as pd
 import math
@@ -76,7 +74,8 @@ def plot_data(device, date, data_frame, report):
     x_array = []
     y_array = []
     z_array = []
-    time_array = []
+    # time_array = []
+    time = []
     event_rms = {'x': [], 'y': [], 'z': []}
     events = {'x': [], 'y': [], 'z': []}
 
@@ -85,17 +84,16 @@ def plot_data(device, date, data_frame, report):
     device_data_frame = data_frame.loc[data_frame['device_id'] == device]
     device_data_frame = device_data_frame.reset_index(drop=True)
 
-    # Following commands create a time array to separate each individual event.
     ts_list = get_devices_for_date(date, data_frame)
-    time = []
-    for i in range(len(ts_list[2])):
-        time.append(ts_list[2][i].strftime('%H:%M:%S'))
 
     # This loop removes the rows where the date doesn't match the date specified in the function call.
     for x in range(len(device_data_frame.index)):
         if not ts_list[2].__contains__(device_data_frame['timestamp'][x]):
             device_data_frame = device_data_frame.drop([x])
     device_data_frame = device_data_frame.reset_index(drop=True)
+
+    for i in range(len(device_data_frame.index)):
+        time.append(device_data_frame['timestamp'][i].strftime('%H:%M:%S'))
 
     # This loop populates the lists with data.
     # (There must be way more efficient ways of doing this, but this works fairly quickly)
@@ -108,7 +106,7 @@ def plot_data(device, date, data_frame, report):
             z_array.append(data_frame['payload'][x][i]['z'])
             events['z'].append(data_frame['payload'][x][i]['z'])
             # The next line creates a continuous "artificial" array of time.
-            time_array.append(device_data_frame['timestamp'][x] + datetime.timedelta(microseconds=i*250))
+            # time_array.append(device_data_frame['timestamp'][x] + datetime.timedelta(microseconds=i*250))
         event_rms['x'].append(rms_value(x_array))
         event_rms['y'].append(rms_value(y_array))
         event_rms['z'].append(rms_value(z_array))
@@ -135,7 +133,7 @@ def plot_data(device, date, data_frame, report):
     plt.show()
 
     # The following commands plots the RMS values bar graphs.
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(9, 9))
+    fig, axes = plt.subplots(3, 1, sharex='all', figsize=(9, 9))
     plt.subplots_adjust(wspace=0.2, hspace=0.5)
     plt.xticks(rotation=45)
     axes[0].bar(time, event_rms['x'])
