@@ -3,6 +3,8 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import os
+import json
+
 
 BUCKET_NAME = 'dev-switch-data-coll-bucket'
 # KEY = 'measurements/2022/07/07/09/dev-switch-firehose-10-2022-07-07-09-59-41-88bc2375-c0fe-442a-b87e-7b3612ef3f6a'
@@ -27,7 +29,7 @@ def download_directory_from_s3(bucket_name, remote_directory_name):
 
 def build_data_base(directory, download):
     df = pd.DataFrame()
-    if directory == 'measurements/2022/07/':
+    if directory == 'measurements/2022/09':
         if download:
             download_directory_from_s3(BUCKET_NAME, directory)
         search_dir = str(directory)
@@ -35,7 +37,7 @@ def build_data_base(directory, download):
             for file in files:
                 filename = os.path.join(subdir, file)
                 df = pd.concat([df, pd.read_json(str(filename), lines=True)], ignore_index=True)
-    return df
+        return df
 
 
 def get_devices_on_df(data_frame):
@@ -98,13 +100,13 @@ def plot_data(device, date, data_frame, report):
     # This loop populates the lists with data.
     # (There must be way more efficient ways of doing this, but this works fairly quickly)
     for x in range(len(device_data_frame.index)):
-        for i in range(len(data_frame['payload'][x])):
-            x_array.append(data_frame['payload'][x][i]['x'])
-            events['x'].append(data_frame['payload'][x][i]['x'])
-            y_array.append(data_frame['payload'][x][i]['y'])
-            events['y'].append(data_frame['payload'][x][i]['y'])
-            z_array.append(data_frame['payload'][x][i]['z'])
-            events['z'].append(data_frame['payload'][x][i]['z'])
+        for i in range(len(device_data_frame['payload'][x])):
+            x_array.append(device_data_frame['payload'][x][i]['x'])
+            events['x'].append(device_data_frame['payload'][x][i]['x'])
+            y_array.append(device_data_frame['payload'][x][i]['y'])
+            events['y'].append(device_data_frame['payload'][x][i]['y'])
+            z_array.append(device_data_frame['payload'][x][i]['z'])
+            events['z'].append(device_data_frame['payload'][x][i]['z'])
             # The next line creates a continuous "artificial" array of time.
             # time_array.append(device_data_frame['timestamp'][x] + datetime.timedelta(microseconds=i*250))
         event_rms['x'].append(rms_value(x_array))
@@ -135,7 +137,7 @@ def plot_data(device, date, data_frame, report):
     # The following commands plots the RMS values bar graphs.
     fig, axes = plt.subplots(3, 1, sharex='all', figsize=(9, 9))
     plt.subplots_adjust(wspace=0.2, hspace=0.5)
-    plt.xticks(rotation=45)
+    plt.xticks(rotation=90)
     axes[0].bar(time, event_rms['x'])
     axes[0].set_title("x-axis")
 
@@ -178,26 +180,76 @@ def generate_report(values):
     os.system("pdflatex report.tex")
 
 
+def create_page_iterator():
+    df = pd.DataFrame()
+    client = boto3.client('s3', region_name='eu-central-1')
+
+    paginator = client.get_paginator('list_objects')
+
+    # Create a PageIterator from the Paginator
+    operation_parameters = {'Bucket': BUCKET_NAME,
+                            'Prefix': 'measurements/2022/07'}
+    page_iterator = paginator.paginate(**operation_parameters)
+    # page_iterator = paginator.paginate(Bucket=BUCKET_NAME)
+
+    for page in page_iterator:
+        contents = page['Contents']
+        for s3_obj in contents:
+            obj = client.get_object(Bucket=BUCKET_NAME, Key=s3_obj['Key'])
+            # df = pd.concat([df, pd.read_json(obj['Body'], lines=True)], ignore_index=True)
+            # j = pd.read_json(obj['Body'], lines=True) #json.loads(obj['Body'].read())
+            data_str = obj['Body'].read().decode('utf-8')
+            print(data_str)
+            if data_str.find('nrf-351358817716720') > 0:
+                print(data_str)
+
+
+def get_max_rms():
+    df = pd.read_csv('comparison/837-852.csv')
+    print(df.head())
+    max_values = list()
+    max_values.append(max(df['Transversal']))
+    max_values.append(max(df['Longitudinal']))
+    max_values.append(max(df['Vertical']))
+    critical = max_values.index(max(max_values))
+    print(max_values)
+    print(critical)
+
+
 # Function to get data from s3 bucket. Use download=True in the first run and everytime a refresh is needed.
 # Caution: this function is going to download all files in the bucket and store locally on the same path
 # where the script is running.
-main_data = build_data_base('measurements/2022/07/', download=False)
+main_data = build_data_base('measurements/2022/09', download=True)
 
 # The file id.csv contains all device IDs for the devices installed
-test_device = 'nrf-351358817717033'
+test_device = 'nrf-351358817716720'
 # The following formate of date is required to use the functions
-test_date = 'Jul/15'
+test_date = 'Sep/08'
+
+installed = pd.read_csv('id.csv', index_col=0)
+field_devices = installed.groupby(['Sensor ID']).count().index
 
 # Print the list of devices that sent data and the dates when this happened
-# id_list = get_devices_on_df(main_data)
-# for devices in range(len(id_list)):
-#     print(id_list[devices] + ' ' + str(get_dates_for_device(id_list[devices], main_data)))
+id_list = get_devices_on_df(main_data)
+for devices in range(len(id_list)):
+    if field_devices.__contains__(id_list[devices]):
+        print(id_list[devices] + ' ' + str(get_dates_for_device(id_list[devices], main_data)))
 
 # Print a list of devices that sent data at least once for the given date: test_date
 # print(get_devices_for_date(test_date, main_data))
 
 # Print a list of dates when there was data sent from the given device: test_device
-# print(get_dates_for_device(test_device, main_data))
+
+# print(dates)
+# total = 0
+# for devices in field_devices:
+#     dates = get_dates_for_device(devices, main_data)
+#     for date in dates:
+#         total += len(get_devices_for_date(date, main_data)[2])
+#     print(total)
+#     total = 0
+
 
 # Plot for test_device and test_date. To generate report, use variable report=True
-plot_data(test_device, test_date, main_data, report=True)
+# plot_data(test_device, test_date, main_data, report=False)
+
