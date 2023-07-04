@@ -8,11 +8,10 @@ import time
 import datetime
 from dateutil import tz
 import matplotlib.ticker as plticker
-
+import numpy as np
 
 BUCKET_NAME = 'dev-switch-data-coll-bucket'
 # KEY = 'measurements/2022/07/07/09/dev-switch-firehose-10-2022-07-07-09-59-41-88bc2375-c0fe-442a-b87e-7b3612ef3f6a'
-
 
 def rms_value(array):
     n = len(array)
@@ -33,16 +32,15 @@ def download_directory_from_s3(bucket_name, remote_directory_name):
 
 def build_data_base(directory, download):
     df = pd.DataFrame()
-    if directory == 'measurements/2022/07/07':
-        if download:
-            download_directory_from_s3(BUCKET_NAME, directory)
-        search_dir = str(directory)
-        for subdir, dirs, files in os.walk(search_dir):
-            for file in files:
-                filename = os.path.join(subdir, file)
-                df = pd.concat([df, pd.read_json(str(filename), lines=True)], ignore_index=True)
-        # df['timestamp'].tz_convert('Europe/Berlin')
-        return df
+    if download:
+        download_directory_from_s3(BUCKET_NAME, directory)
+    search_dir = str(directory)
+    for subdir, dirs, files in os.walk(search_dir):
+        for file in files:
+            filename = os.path.join(subdir, file)
+            df = pd.concat([df, pd.read_json(str(filename), lines=True)], ignore_index=True)
+    # df['timestamp'].tz_convert('Europe/Berlin')
+    return df
 
 
 def get_devices_on_df(data_frame):
@@ -83,7 +81,7 @@ def plot_data(device, date, data_frame, report):
     z_array = []
     # time_array = []
     time_list = []
-    event_rms = {'x': [], 'y': [], 'z': []}
+    event_rms = {'device': device, 'timestamp': [], 'x': [], 'y': [], 'z': []}
     events = {'x': [], 'y': [], 'z': []}
 
     # The following two commands create a subset of the main data frame containing only the information from the chosen
@@ -138,10 +136,11 @@ def plot_data(device, date, data_frame, report):
         event_rms['x'].append(rms_value(x_array))
         event_rms['y'].append(rms_value(y_array))
         event_rms['z'].append(rms_value(z_array))
+        event_rms['timestamp'].append(in_between_df['timestamp'])
         x_array = []
         y_array = []
         z_array = []
-
+    rms_df = pd.DataFrame
     # The following commands plots the raw data.
     # print(len(event_rms['x']))
     fig, axes = plt.subplots(3, 1, sharex='all', figsize=(7, 5.6))
@@ -182,7 +181,7 @@ def plot_data(device, date, data_frame, report):
     axes[2].set_title("z-axis")
 
     for axis in axes:
-        axis.yaxis.set_major_locator(plticker.MultipleLocator(base=10.0))
+        axis.yaxis.set_major_locator(plticker.MultipleLocator(base=3.0))
         axis.set_axisbelow(True)
         axis.grid(axis='y', color='0.75')
     # fig.grid()
@@ -207,6 +206,29 @@ def plot_data(device, date, data_frame, report):
         # generate_report(report_values)
 
 
+def impact_detection(data):
+    sample_counter = 0
+    first_sample = 0
+    end_sample = 0
+    start_flag = False
+    end_flag = False
+    hit_info = []
+    for i in range(len(data['time'])):
+        if data['z'][i] > 300.0:
+            if not start_flag:
+                first_sample = data['time'][i]
+                start_flag = True
+            sample_counter = sample_counter + 1
+        if data['z'][i] < 300.0 and sample_counter > 0:
+            end_sample = data['time'][i]
+            hit_info.append([sample_counter, first_sample, end_sample])
+            sample_counter = 0
+            first_sample = 0
+            end_sample = 0
+            start_flag = False
+    print(hit_info)
+
+
 def plot_data_timestamp(device, timestamp, data_frame, report):
     # Creation of lists to contain data. The simple lists are used to calculate the RMS values, the dictionary is used
     # to store and plot raw data.
@@ -216,7 +238,8 @@ def plot_data_timestamp(device, timestamp, data_frame, report):
     # time_array = []
     time_list = []
     event_rms = {'x': [], 'y': [], 'z': []}
-    events = {'x': [], 'y': [], 'z': []}
+    events = {'time': [], 'x': [], 'y': [], 'z': []}
+    event_rms_df = pd.DataFrame()
 
     # The following two commands create a subset of the main data frame containing only the information from the chosen
     # device id
@@ -234,6 +257,7 @@ def plot_data_timestamp(device, timestamp, data_frame, report):
     for i in range(len(device_data_frame.index)):
         time_list.append(device_data_frame['timestamp'][i].strftime('%H:%M:%S'))
 
+    d = 0
     # This loop populates the lists with data.
     # (There must be way more efficient ways of doing this, but this works fairly quickly)
     for x in range(len(device_data_frame.index)):
@@ -245,6 +269,8 @@ def plot_data_timestamp(device, timestamp, data_frame, report):
             z_array.append(device_data_frame['payload'][x][i]['z'])
             events['z'].append(device_data_frame['payload'][x][i]['z'])
             # The next line creates a continuous "artificial" array of time.
+            events['time'].append(d/4000)
+            d = d + 1
             # time_array.append(device_data_frame['timestamp'][x] + datetime.timedelta(microseconds=i*250))
         event_rms['x'].append(rms_value(x_array))
         event_rms['y'].append(rms_value(y_array))
@@ -253,6 +279,11 @@ def plot_data_timestamp(device, timestamp, data_frame, report):
         y_array = []
         z_array = []
 
+    z_axis_test = pd.DataFrame(events)
+    keys = ['time', 'z']
+    # print(z_axis_test.head())
+    # z_axis_test[keys].to_csv('data.csv', index=False)
+    # impact_detection(events)
     # The following commands plots the raw data.
     fig, axes = plt.subplots(3, 1)
     plt.subplots_adjust(wspace=0.2, hspace=0.5)
@@ -261,9 +292,23 @@ def plot_data_timestamp(device, timestamp, data_frame, report):
 
     axes[1].plot(events['y'], color='r')
     axes[1].set_title("y-axis")
+    # major_ticks = np.arange(-901, 901, 100)
+    # minor_ticks = np.arange(-901, 901, 50)
+
+    # axes.set_xticks(major_ticks)
+    # axes.set_xticks(minor_ticks, minor=True)
+    # axes[0].set_yticks(major_ticks)
+    # axes[0].set_yticks(minor_ticks, minor=True)
+    #
+    # axes[0].grid(which='both')
 
     axes[2].plot(events['z'], color='b')
     axes[2].set_title("z-axis")
+    for axis in axes:
+        # axis.yaxis.set_major_locator(plticker.MultipleLocator(base=5.0))
+        axis.set_axisbelow(True)
+        axis.grid(axis='y', color='0.75')
+
 
     fig.supxlabel('Samples')
     fig.supylabel('Acceleration (m/$s^2$)')
@@ -289,6 +334,9 @@ def plot_data_timestamp(device, timestamp, data_frame, report):
     fig.suptitle(str('RMS acceleration for ' + device + ' on ' + timestamp + ' for each individual event'))
     plt.savefig('figuras/Figure_2.pdf')
     plt.show()
+
+    events_df = pd.DataFrame(events)
+    events_df.to_csv('887_raw_data.csv')
 
     # The following commands populate the variables needed for the function generate_report() and call the function
     # if specified.
@@ -356,27 +404,30 @@ def get_max_rms():
 # Function to get data from s3 bucket. Use download=True in the first run and everytime a refresh is needed.
 # Caution: this function is going to download all files in the bucket and store locally on the same path
 # where the script is running.
-main_data = build_data_base('measurements/2022/07/07', download=False)
+main_data = build_data_base('measurements/2023/07/04', download=False)
+# arr = np.arange(start=0, stop=main_data.shape[0], step=0.00015625, dtype=float)
+# z_axis_df = pd.concat([main_data, arr], axis=1)
+# main_data.to_csv('test.csv', columns=[])
+# main_data = pd.read_csv('data_frame.csv', infer_datetime_format=True)
+# main_data.to_csv('data_frame.csv', index=False)
+# # The file id.csv contains all device IDs for the devices installed
+test_device = 'nrf-350916066832695'
+# # The following formate of date is required to use the functions
+test_date = 'Jul/04'
 
-# The file id.csv contains all device IDs for the devices installed
-test_device = 'nrf-351358817716936'
-# The following formate of date is required to use the functions
-test_date = 'Aug/07'
-
-installed = pd.read_csv('id.csv', index_col=0)
-field_devices = installed.groupby(['Sensor ID']).count().index
+installed = pd.read_csv('new_dep.csv', index_col=0)
+field_devices = installed.groupby(['id']).count().index
 
 # Print the list of devices that sent data and the dates when this happened
-# id_list = get_devices_on_df(main_data)
-# for devices in range(len(id_list)):
-#     if field_devices.__contains__(id_list[devices]):
-#         print(id_list[devices] + ' ' + str(get_dates_for_device(id_list[devices], main_data)))
+id_list = get_devices_on_df(main_data)
+for devices in range(len(id_list)):
+    if field_devices.__contains__(id_list[devices]):
+        print(id_list[devices] + ' ' + str(get_dates_for_device(id_list[devices], main_data)))
 
 # Print a list of devices that sent data at least once for the given date: test_date
-print(get_devices_for_date(test_date, main_data))
+# print(get_devices_for_date(test_date, main_data))
 
 # Print a list of dates when there was data sent from the given device: test_device
-
 # print(dates)
 # total = 0
 # for devices in field_devices:
@@ -389,4 +440,19 @@ print(get_devices_for_date(test_date, main_data))
 
 # Plot for test_device and test_date. To generate report, use variable report=True
 plot_data_timestamp(test_device, test_date, main_data, report=False)
+
+# for i in range(1, 7):
+#     test_date = 'Nov/1' + str(i)
+
+# devices = pd.read_csv('db.csv', index_col=0)
+# data_frame = pd.read_csv('data_frame.csv', index_col=0)
+# rms_df = pd.DataFrame()
+# print(data_frame.index)
+# for device in data_frame.index:
+#     if device in devices['device']:
+
+
+
+
+
 

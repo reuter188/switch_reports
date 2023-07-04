@@ -12,7 +12,9 @@ df_list = []
 df_id = pd.read_csv('id.csv', index_col=0)
 DIR = 'comparison'
 th = {'Transversal': 50.0, 'Longitudinal': 90.0, 'Vertical': 130.0}
+score = {'Transversal': 0, 'Longitudinal': 0, 'Vertical': 0}
 rank_df = pd.DataFrame()
+rank_df_axis = pd.DataFrame()
 events_score = 0
 severity_score = 0
 for subdir, dirs, files in os.walk(DIR):
@@ -26,17 +28,36 @@ for df in df_list:
         for i in range(len(data.index)):
             if data[column][i] > th[column]:
                 events_score += 1
-                if data[column][i]/th[column] > 1.5:
+                score[column] += 1
+                if data[column][i] / th[column] > 1.5:
                     severity_score += 1
-        rank_data = pd.DataFrame(data={'ID': [df['device_id'][0]], 'Events': [events_score],
-                                       'Severity': [severity_score], 'Total RMS values': [i],
+        rank_data = pd.DataFrame(data={'ID': [df['device_id'][0]],
+                                       'Total RMS values': [i + 1],
+                                       'Events': [events_score],
+                                       'Severity': [severity_score],
                                        'Switch ID': [df_id['Switch'][df['device_id'][0]]]})
+        # rank_data_axis = pd.DataFrame(data={'ID': [df['device_id'][0]],
+        #                                     'Total RMS values': [i + 1],
+        #                                     'Above threshold X': [score[]],
+        #                                     'Severity': [severity_score],
+        #                                     'Switch ID': [df_id['Switch'][df['device_id'][0]]]})
+    rank_data_axis = pd.DataFrame(data={'ID': [df['device_id'][0]],
+                                        'Total RMS values': [i + 1],
+                                        'Above threshold X': [score['Transversal']],
+                                        'Above threshold Y': [score['Longitudinal']],
+                                        'Above threshold Z': [score['Vertical']],
+                                        'Severity': [severity_score],
+                                        'Switch ID': [df_id['Switch'][df['device_id'][0]]]})
+    for pos in score:
+        score[pos] = 0
     events_score = 0
     severity_score = 0
     # rank_df = rank_df.append(rank_data, ignore_index=True)
     rank_df = pd.concat([rank_df, rank_data], ignore_index=True)
+    rank_df_axis = pd.concat([rank_df_axis, rank_data_axis], ignore_index=True)
 print(rank_df)
-
+rank_df_axis.to_csv('ranking_per_axis.csv', index=False)
+print(rank_df_axis)
 # df = pd.read_csv('comparison/837_complete.csv')
 # i = 0
 # adjusted_time_list = []
