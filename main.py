@@ -11,6 +11,7 @@ import matplotlib.ticker as plticker
 import numpy as np
 
 BUCKET_NAME = 'dev-switch-data-coll-bucket'
+RMS_BUCKET = 'dev-switch-rms-data-coll'
 # KEY = 'measurements/2022/07/07/09/dev-switch-firehose-10-2022-07-07-09-59-41-88bc2375-c0fe-442a-b87e-7b3612ef3f6a'
 
 def rms_value(array):
@@ -30,10 +31,10 @@ def download_directory_from_s3(bucket_name, remote_directory_name):
         bucket.download_file(obj.key, str(obj.key + '.json'))
 
 
-def build_data_base(directory, download):
+def build_data_base(bucket, directory, download):
     df = pd.DataFrame()
     if download:
-        download_directory_from_s3(BUCKET_NAME, directory)
+        download_directory_from_s3(bucket, directory)
     search_dir = str(directory)
     for subdir, dirs, files in os.walk(search_dir):
         for file in files:
@@ -52,11 +53,18 @@ def get_dates_on_df(data_frame):
     return list(dict.fromkeys(dates_df.groupby(['timestamp']).count().index.strftime('%b/%d')))
 
 
-def get_dates_for_device(device, data_frame):
+def get_dates_for_device(bucket, device, data_frame):
     dates = []
     for i in range(len(data_frame.index)):
         if data_frame['device_id'][i] == device:
-            dates.append(data_frame['timestamp'][i].strftime('%b/%d'))
+            # print(i)
+            if bucket == RMS_BUCKET:
+                # print(data_frame['ts'][i])
+                # print(type(data_frame['ts'][i]))
+                if data_frame['ts'][i] != 'NaT' and data_frame['ts'][i] != 'nan' and not np.isnan(data_frame['ts'][i]):
+                    dates.append(pd.to_datetime(data_frame['ts'][i], utc=True, unit='ms').strftime('%b/%d'))
+            else:
+                dates.append(data_frame['timestamp'][i].strftime('%b/%d'))
     dates = list(dict.fromkeys(dates))
     return dates
 
@@ -404,7 +412,8 @@ def get_max_rms():
 # Function to get data from s3 bucket. Use download=True in the first run and everytime a refresh is needed.
 # Caution: this function is going to download all files in the bucket and store locally on the same path
 # where the script is running.
-main_data = build_data_base('measurements/2023/07/04', download=False)
+main_data = build_data_base(BUCKET_NAME, 'measurements/2023/07/05', download=True)
+# print(type(main_data['timestamp'][0]))
 # arr = np.arange(start=0, stop=main_data.shape[0], step=0.00015625, dtype=float)
 # z_axis_df = pd.concat([main_data, arr], axis=1)
 # main_data.to_csv('test.csv', columns=[])
@@ -413,16 +422,16 @@ main_data = build_data_base('measurements/2023/07/04', download=False)
 # # The file id.csv contains all device IDs for the devices installed
 test_device = 'nrf-350916066832695'
 # # The following formate of date is required to use the functions
-test_date = 'Jul/04'
+test_date = 'Jul/05'
 
 installed = pd.read_csv('new_dep.csv', index_col=0)
 field_devices = installed.groupby(['id']).count().index
-
+#
 # Print the list of devices that sent data and the dates when this happened
 id_list = get_devices_on_df(main_data)
 for devices in range(len(id_list)):
     if field_devices.__contains__(id_list[devices]):
-        print(id_list[devices] + ' ' + str(get_dates_for_device(id_list[devices], main_data)))
+        print(id_list[devices] + ' ' + str(get_dates_for_device(BUCKET_NAME, id_list[devices], main_data)))
 
 # Print a list of devices that sent data at least once for the given date: test_date
 # print(get_devices_for_date(test_date, main_data))
@@ -439,7 +448,7 @@ for devices in range(len(id_list)):
 
 
 # Plot for test_device and test_date. To generate report, use variable report=True
-plot_data_timestamp(test_device, test_date, main_data, report=False)
+# plot_data_timestamp(test_device, test_date, main_data, report=False)
 
 # for i in range(1, 7):
 #     test_date = 'Nov/1' + str(i)
